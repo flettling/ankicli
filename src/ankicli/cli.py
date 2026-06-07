@@ -9,7 +9,7 @@ from .collection import AnkiCollectionService, CollectionError
 from .jsonio import dumps
 from .notetypes import export_notetype_bundle, load_notetype_bundle, summarize_notetype_changes
 from .paths import configured_base, is_default_desktop_base
-from .profiles import ProfileError, ProfileResolver, ProfileStore
+from .profiles import ProfileError, ProfileResolver, ProfileStore, ResolvedProfile
 from .safety import MutatingCommandContext, SafetyError, run_guarded_mutation
 
 app = typer.Typer(help="Command line access to Anki collections.")
@@ -113,7 +113,7 @@ def auth_login(
     username: str = typer.Option(..., prompt=True),
     password: str = typer.Option(..., prompt=True, hide_input=True),
 ) -> None:
-    resolved = _resolve_profile()
+    resolved = _resolve_auth_login_profile()
     sync_key = _sync_login_with_anki(resolved.name, username, password)
     _store().set_sync_auth(resolved.name, sync_key=sync_key, sync_user=username)
     _emit({"profile": resolved.name, "sync_authenticated": True, "sync_user": username})
@@ -396,6 +396,14 @@ def _resolve_profile():
     return ProfileResolver(_store()).resolve(explicit=state.profile)
 
 
+def _resolve_auth_login_profile() -> ResolvedProfile:
+    assert state.base is not None
+    if state.profile and not is_default_desktop_base(state.base):
+        profile = _store().ensure_profile(state.profile)
+        return ResolvedProfile(profile.name, "explicit")
+    return _resolve_profile()
+
+
 def _backup_service() -> BackupService:
     assert state.base is not None
     resolved = _resolve_profile()
@@ -450,6 +458,7 @@ def _sync_login_with_anki(profile: str, username: str, password: str) -> str:
         from anki.collection import Collection
     except ModuleNotFoundError as exc:
         raise typer.BadParameter("the anki package is required for auth login") from exc
+    collection_path.parent.mkdir(parents=True, exist_ok=True)
     collection = Collection(str(collection_path))
     try:
         auth = collection.sync_login(username=username, password=password, endpoint=None)

@@ -88,8 +88,12 @@ ankicli --json auth status
 Prompt for AnkiWeb username and password, call Anki's sync login, and store only
 the returned sync key/user in the selected Anki profile.
 
+In an isolated non-desktop Anki base, an explicit missing `--profile` is created
+automatically. This is intended for first-time VPS/agent setup; desktop Anki
+profiles are not created implicitly.
+
 ```bash
-ankicli --profile agent --json auth login
+ankicli --base /srv/anki --profile agent --json auth login
 ```
 
 ### `auth logout`

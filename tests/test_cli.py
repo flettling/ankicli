@@ -1,3 +1,5 @@
+import ankicli.cli as cli
+from ankicli.profiles import ProfileStore
 from typer.testing import CliRunner
 
 from ankicli.cli import app
@@ -69,6 +71,29 @@ def test_auth_status_json_uses_implicit_profile_token(tmp_path, write_profile_db
     assert '"profile":"agent"' in result.stdout
     assert '"sync_authenticated":true' in result.stdout
     assert '"sync_user":"agent@example.com"' in result.stdout
+
+
+def test_auth_login_bootstraps_explicit_profile_in_fresh_base(tmp_path, monkeypatch):
+    def fake_sync_login(profile: str, username: str, password: str) -> str:
+        assert profile == "agent"
+        assert username == "user@example.com"
+        assert password == "secret"
+        assert (tmp_path / "agent").is_dir()
+        return "sync-token"
+
+    monkeypatch.setattr(cli, "_sync_login_with_anki", fake_sync_login)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["--base", str(tmp_path), "--profile", "agent", "--json", "auth", "login"],
+        input="user@example.com\nsecret\n",
+    )
+
+    assert result.exit_code == 0
+    profile = ProfileStore(tmp_path).get_profile("agent")
+    assert profile.data["syncKey"] == "sync-token"
+    assert profile.data["syncUser"] == "user@example.com"
 
 
 def test_backup_list_json_uses_profile_retention(tmp_path, write_profile_db):

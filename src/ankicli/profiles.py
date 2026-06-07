@@ -60,6 +60,28 @@ class ProfileStore:
             raise ProfileError("profile not found: %s" % name)
         return Profile(name=name, data=rows[name])
 
+    def ensure_profile(self, name: str) -> Profile:
+        if name == "_global":
+            raise ProfileError("invalid profile name: %s" % name)
+        self._ensure_database()
+        rows = self._read_all()
+        if name not in rows:
+            data = {
+                "syncKey": "",
+                "syncUser": "",
+                "syncMedia": True,
+                "numBackups": 50,
+            }
+            self._insert_profile(name, data)
+            rows = self._read_all()
+        global_config = dict(rows.get("_global", {}))
+        if not global_config.get("last_loaded_profile_name"):
+            global_config["last_loaded_profile_name"] = name
+            self._write_profile("_global", global_config)
+        profile_dir = self.base / name
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        return self.get_profile(name)
+
     def global_config(self) -> dict[str, Any]:
         return self._read_all().get("_global", {})
 
@@ -86,6 +108,21 @@ class ProfileStore:
             raise ProfileError("Anki profile database not found: %s" % self.db_path)
         return sqlite3.connect(str(self.db_path))
 
+    def _ensure_database(self) -> None:
+        self.base.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("create table if not exists profiles (name text primary key, data blob not null)")
+            row = con.execute("select name from profiles where name = ?", ("_global",)).fetchone()
+            if not row:
+                con.execute(
+                    "insert into profiles (name, data) values (?, ?)",
+                    ("_global", pickle.dumps({}, protocol=pickle.HIGHEST_PROTOCOL)),
+                )
+            con.commit()
+        finally:
+            con.close()
+
     def _read_all(self) -> dict[str, dict[str, Any]]:
         con = self._connect()
         try:
@@ -103,6 +140,17 @@ class ProfileStore:
             con.execute(
                 "update profiles set data = ? where name = ?",
                 (pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL), name),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+    def _insert_profile(self, name: str, data: dict[str, Any]) -> None:
+        con = self._connect()
+        try:
+            con.execute(
+                "insert into profiles (name, data) values (?, ?)",
+                (name, pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)),
             )
             con.commit()
         finally:

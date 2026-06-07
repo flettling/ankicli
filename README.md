@@ -92,6 +92,8 @@ against desktop Anki unless explicitly authorized.
 - Pass `--base` or set `ANKI_BASE` for agent/VPS workspaces.
 - Let `ankicli` resolve the default profile from Anki's `prefs21.db`, but pass
   `--profile` when multiple sync-authenticated profiles exist.
+- On a fresh agent/VPS workspace, bootstrap the first profile with
+  `ankicli --base "$ANKI_BASE" --profile agent --json auth login`.
 - Every mutating command creates a backup first.
 - Desktop Anki mutations require `--write` and cannot use `--no-backup`.
 
@@ -116,10 +118,9 @@ Use a dedicated Anki base on servers:
 
 ```bash
 export ANKI_BASE=/srv/anki
-ankicli --base "$ANKI_BASE" --json profile list
-ankicli --base "$ANKI_BASE" --json auth login
-ankicli --base "$ANKI_BASE" --json sync status
-ankicli --base "$ANKI_BASE" --json sync run
+ankicli --base "$ANKI_BASE" --profile agent --json auth login
+ankicli --base "$ANKI_BASE" --profile agent --json sync status
+ankicli --base "$ANKI_BASE" --profile agent --json sync run
 ```
 
 Before any mutation, create a backup:

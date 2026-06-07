@@ -15,6 +15,9 @@ desktop Anki paths.
 - Run `ankicli profile default get --json` or `ankicli profile list --json`
   before choosing a profile.
 - If multiple sync-authenticated profiles exist, pass `--profile NAME`.
+- In a fresh isolated agent workspace, run
+  `ankicli --base "$ANKI_BASE" --profile agent --json auth login` once to
+  bootstrap the profile and store the AnkiWeb sync key.
 - Never mutate detected desktop Anki unless the user explicitly authorized it.
 - Never use `--no-backup` against desktop Anki.
 
@@ -33,6 +36,7 @@ Before any mutation:
 
 ```bash
 ankicli --base "$ANKI_BASE" --json profile list
+ankicli --base "$ANKI_BASE" --profile agent --json auth login
 ankicli --base "$ANKI_BASE" --json auth status
 ankicli --base "$ANKI_BASE" --json sync status
 ankicli --base "$ANKI_BASE" --json backup create --force
