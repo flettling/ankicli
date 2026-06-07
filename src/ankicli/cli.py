@@ -1,6 +1,8 @@
+import contextlib
+import io
 import os
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 import typer
 
@@ -123,7 +125,9 @@ def auth_login(
 def backup_create(force: bool = typer.Option(False, "--force")) -> None:
     service = _backup_service()
     try:
-        _emit(service.create(force=force))
+        with _silence_anki_backend_stdout():
+            result = service.create(force=force)
+        _emit(result)
     except BackupError as exc:
         _fail(str(exc), [])
 
@@ -420,11 +424,13 @@ def _collection_path(profile: str) -> Path:
 def _read_collection(operation: Callable[[AnkiCollectionService], object]) -> None:
     resolved = _resolve_profile()
     try:
-        service = AnkiCollectionService.open(_collection_path(resolved.name))
-        try:
-            _emit(operation(service))
-        finally:
-            service.close()
+        with _silence_anki_backend_stdout():
+            service = AnkiCollectionService.open(_collection_path(resolved.name))
+            try:
+                result = operation(service)
+            finally:
+                service.close()
+        _emit(result)
     except CollectionError as exc:
         _fail(str(exc), [])
 
@@ -439,14 +445,19 @@ def _mutate(write: bool, operation: Callable[[AnkiCollectionService], dict]) -> 
     )
 
     def mutate() -> dict:
-        service = AnkiCollectionService.open(_collection_path(resolved.name))
-        try:
-            return operation(service)
-        finally:
-            service.close()
+        with _silence_anki_backend_stdout():
+            service = AnkiCollectionService.open(_collection_path(resolved.name))
+            try:
+                return operation(service)
+            finally:
+                service.close()
+
+    def backup() -> dict:
+        with _silence_anki_backend_stdout():
+            return _backup_service().create()
 
     try:
-        _emit(run_guarded_mutation(context, _backup_service().create, mutate))
+        _emit(run_guarded_mutation(context, backup, mutate))
     except (CollectionError, BackupError, SafetyError) as exc:
         _fail(str(exc), [])
 
@@ -458,12 +469,13 @@ def _sync_login_with_anki(profile: str, username: str, password: str) -> str:
         from anki.collection import Collection
     except ModuleNotFoundError as exc:
         raise typer.BadParameter("the anki package is required for auth login") from exc
-    collection_path.parent.mkdir(parents=True, exist_ok=True)
-    collection = Collection(str(collection_path))
-    try:
-        auth = collection.sync_login(username=username, password=password, endpoint=None)
-    finally:
-        collection.close()
+    with _silence_anki_backend_stdout():
+        collection_path.parent.mkdir(parents=True, exist_ok=True)
+        collection = Collection(str(collection_path))
+        try:
+            auth = collection.sync_login(username=username, password=password, endpoint=None)
+        finally:
+            collection.close()
     sync_key = getattr(auth, "hkey", "")
     if not sync_key:
         raise typer.BadParameter("AnkiWeb login did not return a sync key")
@@ -485,39 +497,48 @@ def _sync_auth(profile_name: str):
 
 def _sync_status() -> dict:
     resolved = _resolve_profile()
-    service = AnkiCollectionService.open(_collection_path(resolved.name))
-    try:
-        status = service.collection.sync_status(_sync_auth(resolved.name))
-        return {"profile": resolved.name, "required": int(status.required), "new_endpoint": getattr(status, "new_endpoint", "")}
-    finally:
-        service.close()
+    with _silence_anki_backend_stdout():
+        service = AnkiCollectionService.open(_collection_path(resolved.name))
+        try:
+            status = service.collection.sync_status(_sync_auth(resolved.name))
+            return {"profile": resolved.name, "required": int(status.required), "new_endpoint": getattr(status, "new_endpoint", "")}
+        finally:
+            service.close()
 
 
 def _sync_run() -> dict:
     resolved = _resolve_profile()
-    service = AnkiCollectionService.open(_collection_path(resolved.name))
-    try:
-        profile = _store().get_profile(resolved.name)
-        output = service.collection.sync_collection(_sync_auth(resolved.name), bool(profile.data.get("syncMedia", True)))
-        return {
-            "profile": resolved.name,
-            "required": int(output.required),
-            "server_message": getattr(output, "server_message", ""),
-            "host_number": int(getattr(output, "host_number", 0)),
-            "server_media_usn": int(getattr(output, "server_media_usn", 0)),
-        }
-    finally:
-        service.close()
+    with _silence_anki_backend_stdout():
+        service = AnkiCollectionService.open(_collection_path(resolved.name))
+        try:
+            profile = _store().get_profile(resolved.name)
+            output = service.collection.sync_collection(_sync_auth(resolved.name), bool(profile.data.get("syncMedia", True)))
+            return {
+                "profile": resolved.name,
+                "required": int(output.required),
+                "server_message": getattr(output, "server_message", ""),
+                "host_number": int(getattr(output, "host_number", 0)),
+                "server_media_usn": int(getattr(output, "server_media_usn", 0)),
+            }
+        finally:
+            service.close()
 
 
 def _sync_full(upload: bool) -> dict:
     resolved = _resolve_profile()
-    service = AnkiCollectionService.open(_collection_path(resolved.name))
-    try:
-        service.collection.full_upload_or_download(auth=_sync_auth(resolved.name), server_usn=None, upload=upload)
-        return {"profile": resolved.name, "upload": upload}
-    finally:
-        service.close()
+    with _silence_anki_backend_stdout():
+        service = AnkiCollectionService.open(_collection_path(resolved.name))
+        try:
+            service.collection.full_upload_or_download(auth=_sync_auth(resolved.name), server_usn=None, upload=upload)
+            return {"profile": resolved.name, "upload": upload}
+        finally:
+            service.close()
+
+
+@contextlib.contextmanager
+def _silence_anki_backend_stdout() -> Iterator[None]:
+    with contextlib.redirect_stdout(io.StringIO()):
+        yield
 
 
 def _parse_fields(assignments: List[str]) -> dict[str, str]:

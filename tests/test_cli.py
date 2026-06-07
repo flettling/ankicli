@@ -1,3 +1,6 @@
+import sys
+import types
+
 import ankicli.cli as cli
 from ankicli.profiles import ProfileStore
 from typer.testing import CliRunner
@@ -86,14 +89,68 @@ def test_auth_login_bootstraps_explicit_profile_in_fresh_base(tmp_path, monkeypa
 
     result = runner.invoke(
         app,
-        ["--base", str(tmp_path), "--profile", "agent", "--json", "auth", "login"],
-        input="user@example.com\nsecret\n",
+        [
+            "--base",
+            str(tmp_path),
+            "--profile",
+            "agent",
+            "--json",
+            "auth",
+            "login",
+            "--username",
+            "user@example.com",
+            "--password",
+            "secret",
+        ],
     )
 
     assert result.exit_code == 0
     profile = ProfileStore(tmp_path).get_profile("agent")
     assert profile.data["syncKey"] == "sync-token"
     assert profile.data["syncUser"] == "user@example.com"
+
+
+def test_auth_login_keeps_json_stdout_clean_when_anki_backend_prints(tmp_path, monkeypatch):
+    class FakeCollection:
+        def __init__(self, path: str):
+            self.path = path
+
+        def sync_login(self, *, username: str, password: str, endpoint):
+            print("blocked main thread for 222ms:")
+            print("  fake stack")
+            return types.SimpleNamespace(hkey="sync-token")
+
+        def close(self):
+            pass
+
+    fake_anki = types.ModuleType("anki")
+    fake_anki.__path__ = []
+    fake_collection = types.ModuleType("anki.collection")
+    fake_collection.Collection = FakeCollection
+    monkeypatch.setitem(sys.modules, "anki", fake_anki)
+    monkeypatch.setitem(sys.modules, "anki.collection", fake_collection)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "--base",
+            str(tmp_path),
+            "--profile",
+            "agent",
+            "--json",
+            "auth",
+            "login",
+            "--username",
+            "user@example.com",
+            "--password",
+            "secret",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "blocked main thread" not in result.stdout
+    assert result.stdout.strip() == '{"profile":"agent","sync_authenticated":true,"sync_user":"user@example.com"}'
 
 
 def test_backup_list_json_uses_profile_retention(tmp_path, write_profile_db):
