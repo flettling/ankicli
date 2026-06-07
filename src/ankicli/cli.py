@@ -516,6 +516,7 @@ def _sync_run() -> dict:
             return {
                 "profile": resolved.name,
                 "required": int(output.required),
+                "new_endpoint": getattr(output, "new_endpoint", ""),
                 "server_message": getattr(output, "server_message", ""),
                 "host_number": int(getattr(output, "host_number", 0)),
                 "server_media_usn": int(getattr(output, "server_media_usn", 0)),
@@ -529,8 +530,21 @@ def _sync_full(upload: bool) -> dict:
     with _silence_anki_backend_stdout():
         service = AnkiCollectionService.open(_collection_path(resolved.name))
         try:
-            service.collection.full_upload_or_download(auth=_sync_auth(resolved.name), server_usn=None, upload=upload)
-            return {"profile": resolved.name, "upload": upload}
+            profile = _store().get_profile(resolved.name)
+            auth = _sync_auth(resolved.name)
+            status = service.collection.sync_collection(auth, bool(profile.data.get("syncMedia", True)))
+            if getattr(status, "new_endpoint", ""):
+                auth.endpoint = status.new_endpoint
+            server_usn = int(getattr(status, "server_media_usn", 0))
+            service.collection.full_upload_or_download(auth=auth, server_usn=server_usn, upload=upload)
+            return {
+                "profile": resolved.name,
+                "upload": upload,
+                "required": int(getattr(status, "required", 0)),
+                "new_endpoint": getattr(status, "new_endpoint", ""),
+                "host_number": int(getattr(status, "host_number", 0)),
+                "server_media_usn": server_usn,
+            }
         finally:
             service.close()
 

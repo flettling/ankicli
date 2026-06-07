@@ -153,6 +153,51 @@ def test_auth_login_keeps_json_stdout_clean_when_anki_backend_prints(tmp_path, m
     assert result.stdout.strip() == '{"profile":"agent","sync_authenticated":true,"sync_user":"user@example.com"}'
 
 
+def test_full_download_uses_server_media_usn_from_sync_collection(tmp_path, write_profile_db, monkeypatch):
+    write_profile_db(
+        tmp_path,
+        {"agent": {"syncKey": "token", "syncUser": "agent@example.com", "syncMedia": True}},
+        {"last_loaded_profile_name": "agent"},
+    )
+    calls = []
+
+    class FakeCollection:
+        def sync_collection(self, auth, sync_media: bool):
+            calls.append(("sync_collection", auth.hkey, auth.endpoint, sync_media))
+            return types.SimpleNamespace(
+                required=3,
+                new_endpoint="https://sync21.ankiweb.net/",
+                host_number=21,
+                server_media_usn=562211,
+            )
+
+        def full_upload_or_download(self, *, auth, server_usn: int, upload: bool):
+            calls.append(("full_upload_or_download", auth.hkey, auth.endpoint, server_usn, upload))
+
+    class FakeService:
+        collection = FakeCollection()
+
+        def close(self):
+            calls.append(("close",))
+
+    monkeypatch.setattr(cli.AnkiCollectionService, "open", lambda path: FakeService())
+    monkeypatch.setattr(cli, "_sync_auth", lambda profile: types.SimpleNamespace(hkey="token", endpoint=None))
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["--base", str(tmp_path), "--profile", "agent", "--json", "sync", "full-download", "--confirm-full-sync"],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("sync_collection", "token", None, True),
+        ("full_upload_or_download", "token", "https://sync21.ankiweb.net/", 562211, False),
+        ("close",),
+    ]
+    assert '"server_media_usn":562211' in result.stdout
+
+
 def test_backup_list_json_uses_profile_retention(tmp_path, write_profile_db):
     write_profile_db(
         tmp_path,
