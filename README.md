@@ -1,0 +1,150 @@
+# ankicli
+
+`ankicli` is a command line interface for Anki collections and AnkiWeb sync.
+It is built on Anki's official Python package and is intended for agent-first
+workflows on isolated Anki workspaces, while keeping desktop Anki mutations
+guarded.
+
+## Quick Install For Agents
+
+Give an agent this README link and ask it to install both the CLI and the skill.
+After the repository is published, the recommended path is:
+
+```bash
+git clone https://github.com/flettling/ankicli.git
+cd ankicli
+python3 -m pip install --upgrade pip
+python3 -m pip install .
+bash scripts/install-skill.sh
+ankicli --help
+```
+
+From an existing local checkout:
+
+```bash
+python3 -m pip install --upgrade pip
+python3 -m pip install .
+bash scripts/install-skill.sh
+ankicli --help
+```
+
+For an isolated install, use `pipx`:
+
+```bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install .
+bash scripts/install-skill.sh
+ankicli --help
+```
+
+To install the skill into a specific agent skill directory:
+
+```bash
+bash scripts/install-skill.sh ~/.codex/skills
+bash scripts/install-skill.sh ~/.agents/skills
+ANKICLI_SKILL_HOME=~/.openclaw/skills bash scripts/install-skill.sh
+```
+
+The CLI alone can also be installed directly from GitHub, but this does not
+install the skill because `pip` does not copy repository skill folders into an
+agent's skill directory:
+
+```bash
+python3 -m pip install "git+https://github.com/flettling/ankicli.git"
+```
+
+## Manual Development Install
+
+Use a virtual environment when developing locally:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+pytest -q
+```
+
+If editable install is not supported by the local `pip`, install non-editable:
+
+```bash
+python -m pip install .
+```
+
+## First Smoke Test
+
+Read-only profile and deck inspection:
+
+```bash
+ankicli --json profile list
+ankicli --json profile default get
+ankicli --profile "Florian" --json deck list
+```
+
+On macOS/Linux desktop Anki, opening a collection may need permission to create
+Anki lock/sidecar files in the profile directory. Do not use mutating commands
+against desktop Anki unless explicitly authorized.
+
+## Core Rules
+
+- Use `--json` for automation.
+- Pass `--base` or set `ANKI_BASE` for agent/VPS workspaces.
+- Let `ankicli` resolve the default profile from Anki's `prefs21.db`, but pass
+  `--profile` when multiple sync-authenticated profiles exist.
+- Every mutating command creates a backup first.
+- Desktop Anki mutations require `--write` and cannot use `--no-backup`.
+
+## Examples
+
+```bash
+ankicli --base /srv/anki --json profile list
+ankicli --base /srv/anki --json auth status
+ankicli --base /srv/anki --json backup create --force
+ankicli --base /srv/anki --json sync status
+ankicli --base /srv/anki --json note search "deck:Current"
+ankicli --base /srv/anki --json card suspend "tag:pause-me" --write
+ankicli --base /srv/anki --json filtered create "Due Today" --search "is:due" --limit 100 --order DUE --write
+ankicli --base /srv/anki --json notetype export Basic --out /tmp/basic-notetype
+```
+
+For the full command reference, see [docs/COMMANDS.md](docs/COMMANDS.md).
+
+## Agent/VPS Workflow
+
+Use a dedicated Anki base on servers:
+
+```bash
+export ANKI_BASE=/srv/anki
+ankicli --base "$ANKI_BASE" --json profile list
+ankicli --base "$ANKI_BASE" --json auth login
+ankicli --base "$ANKI_BASE" --json sync status
+ankicli --base "$ANKI_BASE" --json sync run
+```
+
+Before any mutation, create a backup:
+
+```bash
+ankicli --base "$ANKI_BASE" --json backup create --force
+ankicli --base "$ANKI_BASE" --json card suspend "tag:pause-me" --write
+ankicli --base "$ANKI_BASE" --json filtered rebuild "Due Today" --write
+ankicli --base "$ANKI_BASE" --json sync run
+```
+
+## Notetype Bundles
+
+`notetype export` writes a directory bundle instead of a flat file:
+
+- `notetype.json`
+- `fields.json`
+- `style.css`
+- `templates/<NN>-<name>/front.html`
+- `templates/<NN>-<name>/back.html`
+- `templates/<NN>-<name>/template.json`
+
+`notetype update` validates the bundle, creates a backup, summarizes changes,
+and requires `--confirm-schema-change` when fields or templates change.
+
+## License
+
+AGPL-3.0-or-later, matching Anki's licensing constraints.

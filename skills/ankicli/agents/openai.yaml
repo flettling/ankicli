@@ -1,0 +1,7 @@
+interface:
+  display_name: "ankicli"
+  short_description: "Safely operate Anki from the shell"
+  default_prompt: "Use $ankicli to inspect, back up, sync, and safely mutate an Anki collection."
+
+policy:
+  allow_implicit_invocation: true
