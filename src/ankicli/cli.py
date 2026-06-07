@@ -170,8 +170,11 @@ def sync_full_download(confirm_full_sync: bool = typer.Option(False, "--confirm-
 
 
 @deck_app.command("list")
-def deck_list() -> None:
-    _read_collection(lambda service: service.list_decks())
+def deck_list(counts: bool = typer.Option(False, "--counts", help="Emit Anki overview counts as a deck tree.")) -> None:
+    if counts:
+        _read_collection(lambda service: service.deck_due_tree())
+    else:
+        _read_collection(lambda service: service.list_decks())
 
 
 @deck_app.command("info")
@@ -277,8 +280,11 @@ def filtered_delete(name: str, write: bool = typer.Option(False, "--write"), con
 
 
 @note_app.command("search")
-def note_search(query: str) -> None:
-    _read_collection(lambda service: service.search_notes(query))
+def note_search(query: str, count: bool = typer.Option(False, "--count", help="Emit only the number of matching notes.")) -> None:
+    if count:
+        _read_collection(lambda service: service.count_notes(query))
+    else:
+        _read_collection(lambda service: service.search_notes(query))
 
 
 @note_app.command("get")
@@ -330,8 +336,11 @@ def note_delete(note_id: int, write: bool = typer.Option(False, "--write"), conf
 
 
 @card_app.command("search")
-def card_search(query: str) -> None:
-    _read_collection(lambda service: service.search_cards(query))
+def card_search(query: str, count: bool = typer.Option(False, "--count", help="Emit only the number of matching cards.")) -> None:
+    if count:
+        _read_collection(lambda service: service.count_cards(query))
+    else:
+        _read_collection(lambda service: service.search_cards(query))
 
 
 @card_app.command("get")

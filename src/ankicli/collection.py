@@ -42,6 +42,12 @@ class AnkiCollectionService:
             raise CollectionError("deck not found: %s" % name)
         return {"deck": deck}
 
+    def deck_due_tree(self) -> dict[str, Any]:
+        tree = self.collection.sched.deck_due_tree()
+        if tree is None:
+            raise CollectionError("deck due tree not available")
+        return {"deck_tree": self._serialize_deck_tree_node(tree)}
+
     def create_deck(self, name: str) -> dict[str, Any]:
         deck_id = self.collection.decks.id(name)
         return {"changed_ids": [int(deck_id)]}
@@ -142,6 +148,9 @@ class AnkiCollectionService:
     def search_notes(self, query: str) -> dict[str, Any]:
         return {"note_ids": [int(note_id) for note_id in self.collection.find_notes(query)]}
 
+    def count_notes(self, query: str) -> dict[str, Any]:
+        return {"count": len(self.collection.find_notes(query))}
+
     def get_note(self, note_id: int) -> dict[str, Any]:
         note = self.collection.get_note(note_id)
         fields = dict(note.items()) if hasattr(note, "items") else {}
@@ -174,6 +183,9 @@ class AnkiCollectionService:
 
     def search_cards(self, query: str) -> dict[str, Any]:
         return {"card_ids": [int(card_id) for card_id in self.collection.find_cards(query)]}
+
+    def count_cards(self, query: str) -> dict[str, Any]:
+        return {"count": len(self.collection.find_cards(query))}
 
     def get_card(self, card_id: int) -> dict[str, Any]:
         card = self.collection.get_card(card_id)
@@ -255,6 +267,24 @@ class AnkiCollectionService:
             "name": deck["name"],
             "search_terms": _legacy_search_terms(deck),
             "reschedule": bool(deck.get("resched", deck.get("reschedule", False))),
+        }
+
+    @classmethod
+    def _serialize_deck_tree_node(cls, node: Any) -> dict[str, Any]:
+        return {
+            "id": int(getattr(node, "deck_id")),
+            "name": str(getattr(node, "name")),
+            "level": int(getattr(node, "level")),
+            "collapsed": bool(getattr(node, "collapsed")),
+            "filtered": bool(getattr(node, "filtered")),
+            "counts": {
+                "new": int(getattr(node, "new_count")),
+                "learn": int(getattr(node, "learn_count")),
+                "due": int(getattr(node, "review_count")),
+                "total_in_deck": int(getattr(node, "total_in_deck")),
+                "total_including_children": int(getattr(node, "total_including_children")),
+            },
+            "children": [cls._serialize_deck_tree_node(child) for child in getattr(node, "children")],
         }
 
 

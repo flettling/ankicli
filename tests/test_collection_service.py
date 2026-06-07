@@ -39,11 +39,68 @@ class FakeScheduler:
         self.emptied.append(deck_id)
         return FakeOp()
 
+    def deck_due_tree(self):
+        return FakeDeckTreeNode(
+            deck_id=1,
+            name=".learn",
+            level=0,
+            collapsed=False,
+            filtered=False,
+            new_count=5,
+            learn_count=2,
+            review_count=11,
+            total_in_deck=3,
+            total_including_children=17,
+            children=[
+                FakeDeckTreeNode(
+                    deck_id=2,
+                    name=".learn::Biochemie",
+                    level=1,
+                    collapsed=True,
+                    filtered=True,
+                    new_count=1,
+                    learn_count=0,
+                    review_count=4,
+                    total_in_deck=5,
+                    total_including_children=5,
+                )
+            ],
+        )
+
 
 class FakeOp:
     def __init__(self, id=None, count=None):
         self.id = id
         self.count = count
+
+
+class FakeDeckTreeNode:
+    def __init__(
+        self,
+        *,
+        deck_id,
+        name,
+        level,
+        collapsed,
+        filtered,
+        new_count,
+        learn_count,
+        review_count,
+        total_in_deck,
+        total_including_children,
+        children=None,
+    ):
+        self.deck_id = deck_id
+        self.name = name
+        self.level = level
+        self.collapsed = collapsed
+        self.filtered = filtered
+        self.new_count = new_count
+        self.learn_count = learn_count
+        self.review_count = review_count
+        self.total_in_deck = total_in_deck
+        self.total_including_children = total_including_children
+        self.children = children or []
 
 
 class FakeSearchTerms(list):
@@ -149,6 +206,7 @@ def test_collection_service_searches_notes_and_serializes_fields():
     service = AnkiCollectionService(FakeCollection())
 
     assert service.search_notes("front:question") == {"note_ids": [42]}
+    assert service.count_notes("front:question") == {"count": 1}
     assert service.get_note(42)["fields"] == {"Front": "question", "Back": "answer"}
 
 
@@ -158,8 +216,49 @@ def test_collection_service_suspends_cards_by_search_query():
 
     result = service.suspend_cards("is:new")
 
+    assert service.count_cards("is:new") == {"count": 2}
     assert collection.sched.suspended == [100, 101]
     assert result["changed_ids"] == [100, 101]
+
+
+def test_collection_service_serializes_deck_due_tree_counts():
+    service = AnkiCollectionService(FakeCollection())
+
+    result = service.deck_due_tree()
+
+    assert result == {
+        "deck_tree": {
+            "id": 1,
+            "name": ".learn",
+            "level": 0,
+            "collapsed": False,
+            "filtered": False,
+            "counts": {
+                "new": 5,
+                "learn": 2,
+                "due": 11,
+                "total_in_deck": 3,
+                "total_including_children": 17,
+            },
+            "children": [
+                {
+                    "id": 2,
+                    "name": ".learn::Biochemie",
+                    "level": 1,
+                    "collapsed": True,
+                    "filtered": True,
+                    "counts": {
+                        "new": 1,
+                        "learn": 0,
+                        "due": 4,
+                        "total_in_deck": 5,
+                        "total_including_children": 5,
+                    },
+                    "children": [],
+                }
+            ],
+        }
+    }
 
 
 def test_collection_service_updates_notetype_with_anki_model_manager():

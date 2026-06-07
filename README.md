@@ -94,6 +94,8 @@ against desktop Anki unless explicitly authorized.
   `--profile` when multiple sync-authenticated profiles exist.
 - On a fresh agent/VPS workspace, bootstrap the first profile with
   `ankicli --base "$ANKI_BASE" --profile agent --json auth login`.
+- Use count-only reads before bulk actions: `deck list --counts`,
+  `card search QUERY --count`, or `note search QUERY --count`.
 - Every mutating command creates a backup first.
 - Desktop Anki mutations require `--write` and cannot use `--no-backup`.
 
@@ -104,6 +106,9 @@ ankicli --base /srv/anki --json profile list
 ankicli --base /srv/anki --json auth status
 ankicli --base /srv/anki --json backup create --force
 ankicli --base /srv/anki --json sync status
+ankicli --base /srv/anki --json deck list --counts
+ankicli --base /srv/anki --json card search 'deck:".learn" is:due' --count
+ankicli --base /srv/anki --json note search "tag:High-Yield" --count
 ankicli --base /srv/anki --json note search "deck:Current"
 ankicli --base /srv/anki --json card suspend "tag:pause-me" --write
 ankicli --base /srv/anki --json filtered create "Due Today" --search "is:due" --limit 100 --order DUE --write
@@ -121,11 +126,13 @@ export ANKI_BASE=/srv/anki
 ankicli --base "$ANKI_BASE" --profile agent --json auth login
 ankicli --base "$ANKI_BASE" --profile agent --json sync status
 ankicli --base "$ANKI_BASE" --profile agent --json sync run
+ankicli --base "$ANKI_BASE" --profile agent --json deck list --counts
 ```
 
-Before any mutation, create a backup:
+Before any mutation, inspect the blast radius with counts and then create a backup:
 
 ```bash
+ankicli --base "$ANKI_BASE" --json card search "tag:pause-me" --count
 ankicli --base "$ANKI_BASE" --json backup create --force
 ankicli --base "$ANKI_BASE" --json card suspend "tag:pause-me" --write
 ankicli --base "$ANKI_BASE" --json filtered rebuild "Due Today" --write

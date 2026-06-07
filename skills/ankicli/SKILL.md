@@ -18,6 +18,8 @@ desktop Anki paths.
 - In a fresh isolated agent workspace, run
   `ankicli --base "$ANKI_BASE" --profile agent --json auth login` once to
   bootstrap the profile and store the AnkiWeb sync key.
+- Use read-only counts before planning bulk changes: `deck list --counts`,
+  `card search QUERY --count`, or `note search QUERY --count`.
 - Never mutate detected desktop Anki unless the user explicitly authorized it.
 - Never use `--no-backup` against desktop Anki.
 
@@ -25,7 +27,7 @@ desktop Anki paths.
 
 Before any mutation:
 
-1. Inspect the target with `search`, `get`, or `list`.
+1. Inspect the target with `search`, `get`, `list`, or count commands.
 2. Run `ankicli backup create --force --json`, unless the mutating command
    itself reports a fresh backup.
 3. Apply the smallest mutation possible.
@@ -40,11 +42,36 @@ ankicli --base "$ANKI_BASE" --profile agent --json auth login
 ankicli --base "$ANKI_BASE" --json auth status
 ankicli --base "$ANKI_BASE" --json sync status
 ankicli --base "$ANKI_BASE" --json backup create --force
+ankicli --base "$ANKI_BASE" --json deck list --counts
+ankicli --base "$ANKI_BASE" --json card search 'deck:"Target" is:due' --count
+ankicli --base "$ANKI_BASE" --json note search "tag:High-Yield" --count
 ankicli --base "$ANKI_BASE" --json note search "deck:Target"
 ankicli --base "$ANKI_BASE" --json note get 123
 ankicli --base "$ANKI_BASE" --json card suspend "cid:123" --write
 ankicli --base "$ANKI_BASE" --json filtered create "Due Today" --search "is:due" --limit 100 --order DUE --write
 ankicli --base "$ANKI_BASE" --json notetype export Basic --out /tmp/basic-notetype
+```
+
+## Counts And Planning
+
+Counts are read-only. They do not require `--write`, do not create backups, and
+are safe to run before deciding whether a mutation is appropriate.
+
+- Deck overview: `ankicli --json deck list --counts`
+- Card query size: `ankicli --json card search QUERY --count`
+- Note query size: `ankicli --json note search QUERY --count`
+
+Use `deck list --counts` when the user asks for Anki overview numbers such as
+New, Learn, and Due per deck. Use `card search --count` before suspend,
+unsuspend, filtered deck creation, rebuild planning, or any bulk card operation.
+Use `note search --count` before note-level edits or deletes.
+
+For filtered deck planning, count the same search query before creating or
+rebuilding the filtered deck:
+
+```bash
+ankicli --base "$ANKI_BASE" --json card search 'deck:"Target" tag:High-Yield' --count
+ankicli --base "$ANKI_BASE" --json filtered create "Target High-Yield" --search 'deck:"Target" tag:High-Yield' --limit 9999 --order DUE --write
 ```
 
 ## Filtered Decks

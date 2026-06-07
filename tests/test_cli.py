@@ -216,6 +216,78 @@ def test_backup_list_json_uses_profile_retention(tmp_path, write_profile_db):
     assert '"backup.colpkg"' in result.stdout
 
 
+def test_deck_list_counts_returns_deck_tree(tmp_path, write_profile_db, monkeypatch):
+    write_profile_db(
+        tmp_path,
+        {"agent": {"syncKey": "token", "syncUser": "agent@example.com"}},
+        {"last_loaded_profile_name": "agent"},
+    )
+
+    class FakeService:
+        def deck_due_tree(self):
+            return {
+                "deck_tree": {
+                    "id": 1,
+                    "name": ".learn",
+                    "level": 0,
+                    "collapsed": False,
+                    "filtered": False,
+                    "counts": {
+                        "new": 5,
+                        "learn": 2,
+                        "due": 11,
+                        "total_in_deck": 3,
+                        "total_including_children": 17,
+                    },
+                    "children": [],
+                }
+            }
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli.AnkiCollectionService, "open", lambda path: FakeService())
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["--base", str(tmp_path), "--json", "deck", "list", "--counts"])
+
+    assert result.exit_code == 0
+    assert '"deck_tree"' in result.stdout
+    assert '"due":11' in result.stdout
+    assert '"decks"' not in result.stdout
+
+
+def test_search_count_flags_return_count_only(tmp_path, write_profile_db, monkeypatch):
+    write_profile_db(
+        tmp_path,
+        {"agent": {"syncKey": "token", "syncUser": "agent@example.com"}},
+        {"last_loaded_profile_name": "agent"},
+    )
+
+    class FakeService:
+        def count_cards(self, query):
+            assert query == "is:new"
+            return {"count": 2}
+
+        def count_notes(self, query):
+            assert query == "tag:High-Yield"
+            return {"count": 7}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli.AnkiCollectionService, "open", lambda path: FakeService())
+    runner = CliRunner()
+
+    card_result = runner.invoke(app, ["--base", str(tmp_path), "--json", "card", "search", "is:new", "--count"])
+    note_result = runner.invoke(app, ["--base", str(tmp_path), "--json", "note", "search", "tag:High-Yield", "--count"])
+
+    assert card_result.exit_code == 0
+    assert card_result.stdout.strip() == '{"count":2}'
+    assert note_result.exit_code == 0
+    assert note_result.stdout.strip() == '{"count":7}'
+
+
 def test_cli_exposes_planned_command_groups():
     runner = CliRunner()
 

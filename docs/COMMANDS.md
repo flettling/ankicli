@@ -182,6 +182,52 @@ List all decks.
 ankicli --json deck list
 ```
 
+JSON shape:
+
+```json
+{"decks":[{"id":1730937936132,"name":".learn"}]}
+```
+
+### `deck list --counts`
+
+Return Anki's deck overview counts as a recursive tree. This mirrors the counts
+Anki shows in the deck overview; it is not a generic search-query count. The
+command is read-only and does not require `--write` or create a backup.
+
+```bash
+ankicli --json deck list --counts
+```
+
+JSON shape:
+
+```json
+{
+  "deck_tree": {
+    "id": 1730937936132,
+    "name": ".learn",
+    "level": 0,
+    "collapsed": false,
+    "filtered": false,
+    "counts": {
+      "new": 57,
+      "learn": 97,
+      "due": 2690,
+      "total_in_deck": 0,
+      "total_including_children": 12345
+    },
+    "children": []
+  }
+}
+```
+
+Count fields:
+
+- `new`: new cards available in Anki's scheduler overview
+- `learn`: learning cards in Anki's scheduler overview
+- `due`: review cards due in Anki's scheduler overview
+- `total_in_deck`: cards directly in this deck
+- `total_including_children`: cards in this deck plus child decks
+
 ### `deck info NAME`
 
 Show the raw Anki deck object for `NAME`.
@@ -320,6 +366,19 @@ Search note IDs using Anki's search syntax.
 ankicli --json note search "deck:Ankizin tag:todo"
 ```
 
+Use `--count` when an agent only needs the size of the result set. This is
+read-only and returns no note IDs.
+
+```bash
+ankicli --json note search "tag:High-Yield" --count
+```
+
+JSON shape:
+
+```json
+{"count":123}
+```
+
 ### `note get NOTE_ID`
 
 Read one note's fields and tags.
@@ -369,6 +428,19 @@ Search card IDs using Anki's search syntax.
 
 ```bash
 ankicli --json card search "is:new deck:Ankizin"
+```
+
+Use `--count` before bulk actions or filtered-deck planning to avoid returning
+large ID arrays. This is read-only and returns no card IDs.
+
+```bash
+ankicli --json card search 'deck:".learn" is:due' --count
+```
+
+JSON shape:
+
+```json
+{"count":123}
 ```
 
 ### `card get CARD_ID`
