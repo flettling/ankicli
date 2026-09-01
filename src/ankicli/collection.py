@@ -234,6 +234,23 @@ class AnkiCollectionService:
         self.collection.models.update_dict(model, skip_checks=False)
         return {"changed_ids": [int(existing["id"])]}
 
+    def import_apkg(self, package_path: Path, options: dict[str, Any]) -> dict[str, Any]:
+        from .importing import anki_import_options, serialize_import_response
+
+        try:
+            from anki.import_export_pb2 import ImportAnkiPackageRequest
+        except ModuleNotFoundError as exc:
+            raise CollectionError("the anki package is required for APKG import") from exc
+        request = ImportAnkiPackageRequest(
+            package_path=str(package_path),
+            options=anki_import_options(options),
+        )
+        try:
+            response = self.collection.import_anki_package(request)
+        except Exception as exc:
+            raise CollectionError("APKG import failed: %s" % exc) from exc
+        return serialize_import_response(response, package_path, options)
+
     def _model_by_name(self, name: str) -> dict[str, Any]:
         by_name = getattr(self.collection.models, "by_name", None)
         model: Optional[dict[str, Any]] = by_name(name) if callable(by_name) else None

@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from ankicli.backups import BackupService
+import pytest
+
+from ankicli.backups import BackupError, BackupService
 
 
 class FakeCollection:
@@ -34,6 +36,8 @@ def test_backup_service_uses_anki_collection_backup_api(tmp_path):
         }
     ]
     assert result["created"] is True
+    assert result["verified"] is True
+    assert result["path"] == str(tmp_path / "agent" / "backups" / "backup-1.colpkg")
     assert result["backup_dir"] == str(tmp_path / "agent" / "backups")
 
 
@@ -50,3 +54,35 @@ def test_backup_prune_keeps_newest_files_within_retention(tmp_path):
 
     assert len(result["removed"]) == 2
     assert len(service.list()["backups"]) == 2
+
+
+def test_backup_service_rejects_unverifiable_backup(tmp_path):
+    class NoBackupCollection:
+        def create_backup(self, **_kwargs):
+            return False
+
+    service = BackupService(
+        tmp_path,
+        "agent",
+        retention=50,
+        collection_factory=lambda _: NoBackupCollection(),
+    )
+
+    with pytest.raises(BackupError, match="could not be verified"):
+        service.create(force=True)
+
+
+def test_backup_service_wraps_native_backup_failure(tmp_path):
+    class FailingCollection:
+        def create_backup(self, **_kwargs):
+            raise OSError("native failure")
+
+    service = BackupService(
+        tmp_path,
+        "agent",
+        retention=50,
+        collection_factory=lambda _: FailingCollection(),
+    )
+
+    with pytest.raises(BackupError, match="Anki backup failed: native failure"):
+        service.create(force=True)

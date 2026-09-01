@@ -32,6 +32,9 @@ Default profile resolution:
 - `--no-backup` is not exposed for desktop operations.
 - Delete, full sync, and notetype schema changes require explicit confirmation flags.
 - On sandboxed systems, read commands may need permission to open Anki's collection because Anki may create lock/sidecar files.
+- APKG import always requires `--write`, including in isolated workspaces.
+- If the selected profile is open in Desktop Anki, APKG import uses the native
+  authenticated bridge and never opens or edits `collection.anki2` separately.
 
 ## Profile Commands
 
@@ -117,6 +120,11 @@ ankicli --json backup create --force
 
 Output includes `backup_dir` and retention.
 
+Successful output also includes the exact `path` and `verified:true`. If Anki
+reports no new backup because the collection has not changed, ankicli accepts
+an existing non-empty backup as the verified recovery point. If no backup can
+be verified, the mutation is aborted.
+
 ### `backup list`
 
 List backup files for the selected profile.
@@ -133,6 +141,113 @@ Delete old backup files beyond the profile retention count, usually Anki's
 ```bash
 ankicli --json backup prune
 ```
+
+## Import Commands
+
+### `import apkg PATH`
+
+Import a `.apkg` with Anki's native package importer. This command never runs
+AnkiWeb synchronization. It requires `--write`; validation and backup must both
+succeed before the package is applied.
+
+```bash
+ankicli --json import apkg /path/to/deck.apkg --write
+```
+
+Defaults:
+
+| Behavior | Default | Flag |
+|---|---:|---|
+| Import learning progress/scheduling | off | `--with-scheduling` / `--without-scheduling` |
+| Import deck presets/configuration | off | `--with-deck-configs` / `--without-deck-configs` |
+| Update existing notes | `never` | `--update-notes never\|if-newer\|always` |
+| Update existing notetypes | `never` | `--update-notetypes never\|if-newer\|always` |
+| Merge compatible notetypes | off | `--merge-notetypes` / `--no-merge-notetypes` |
+
+Update modes map directly to Anki's native package import conditions:
+
+- `never`: preserve an existing matching note/notetype.
+- `if-newer`: update only when the package version has a newer modification time.
+- `always`: replace the matching content regardless of modification time.
+
+`--merge-notetypes` asks Anki to merge compatible notetypes. Leave it off to
+avoid silently combining distinct schemas. With notetype updates set to
+`never`, existing native Image Occlusion metadata and templates are preserved.
+
+Safe AMBOSSIO update:
+
+```bash
+ankicli --json import apkg /Users/florian/repos/AMBOSSIO/dist/AMBOSSIO.apkg \
+  --update-notes if-newer \
+  --update-notetypes never \
+  --without-scheduling \
+  --without-deck-configs \
+  --no-merge-notetypes \
+  --write
+```
+
+JSON shape (IDs are included per native category; note field contents are not
+echoed):
+
+```json
+{
+  "backup": {
+    "created": true,
+    "verified": true,
+    "path": "/.../backups/backup-2026-09-01.colpkg",
+    "backup_dir": "/.../backups",
+    "retention": 50
+  },
+  "result": {
+    "package_path": "/path/to/deck.apkg",
+    "options": {
+      "with_scheduling": false,
+      "with_deck_configs": false,
+      "update_notes": "never",
+      "update_notetypes": "never",
+      "merge_notetypes": false
+    },
+    "notes": {"new": 10, "updated": 0, "unchanged": 2, "skipped": 2, "found": 12},
+    "categories": {
+      "new": [{"id": 123}],
+      "updated": [],
+      "duplicate": [{"id": 456}],
+      "conflicting": [],
+      "first_field_match": [],
+      "missing_notetype": [],
+      "missing_deck": [],
+      "empty_first_field": []
+    },
+    "warnings": ["duplicate: 1 note(s)"],
+    "errors": [],
+    "changes": {"card": true, "note": true, "notetype": false}
+  },
+  "transport": "live_bridge"
+}
+```
+
+`transport` is `live_bridge` for an open Desktop Anki profile and `direct` for
+a closed or isolated collection. Native categories make repeated imports
+transparent: exact matching content appears as `duplicate`, contributes to
+`unchanged` and `skipped`, and is not counted as new. Conflicts, missing decks
+or notetypes, first-field matches, and empty first fields are counted in
+`skipped` and summarized in `warnings`. Invalid/unreadable packages, backup
+failures, bridge errors, and native importer failures return a non-zero exit
+code and an `error` payload.
+
+If a bridge state file exists but its authenticated endpoint cannot be reached,
+ankicli fails closed instead of attempting to open the collection directly.
+Restart Anki (or, after confirming Anki is fully closed, remove the stale
+`ankicli-bridge.json` from the Anki base) before retrying.
+
+Install or update the live bridge, then restart Anki:
+
+```bash
+bash scripts/install-bridge.sh
+```
+
+The installer defaults to the platform Anki base, accepts an alternate base as
+its first argument, and backs up a replaced add-on directory with a timestamp.
 
 ## Sync Commands
 

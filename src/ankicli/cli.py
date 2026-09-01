@@ -7,11 +7,13 @@ from typing import Callable, Iterator, List, Optional
 import typer
 
 from .backups import BackupError, BackupService
+from .bridge import BridgeClient, BridgeError
 from .collection import AnkiCollectionService, CollectionError
+from .importing import import_options_payload, validate_apkg_path
 from .jsonio import dumps
 from .notetypes import export_notetype_bundle, load_notetype_bundle, summarize_notetype_changes
 from .paths import configured_base, is_default_desktop_base
-from .profiles import ProfileError, ProfileResolver, ProfileStore, ResolvedProfile
+from .profiles import ProfileResolver, ProfileStore, ResolvedProfile
 from .safety import MutatingCommandContext, SafetyError, run_guarded_mutation
 
 app = typer.Typer(help="Command line access to Anki collections.")
@@ -25,6 +27,7 @@ filtered_app = typer.Typer(help="Inspect and mutate filtered decks.")
 note_app = typer.Typer(help="Inspect and mutate notes.")
 card_app = typer.Typer(help="Inspect and mutate cards.")
 notetype_app = typer.Typer(help="Inspect and mutate notetypes.")
+import_app = typer.Typer(help="Import Anki packages.")
 app.add_typer(profile_app, name="profile")
 profile_app.add_typer(default_app, name="default")
 app.add_typer(auth_app, name="auth")
@@ -35,6 +38,7 @@ app.add_typer(filtered_app, name="filtered")
 app.add_typer(note_app, name="note")
 app.add_typer(card_app, name="card")
 app.add_typer(notetype_app, name="notetype")
+app.add_typer(import_app, name="import")
 
 
 class CliState:
@@ -400,6 +404,87 @@ def notetype_update(
     _mutate(write, update)
 
 
+@import_app.command("apkg")
+def import_apkg(
+    path: Path,
+    with_scheduling: bool = typer.Option(
+        False,
+        "--with-scheduling/--without-scheduling",
+        help="Import card scheduling/learning progress (default: off).",
+    ),
+    with_deck_configs: bool = typer.Option(
+        False,
+        "--with-deck-configs/--without-deck-configs",
+        help="Import deck presets/configuration (default: off).",
+    ),
+    update_notes: str = typer.Option(
+        "never",
+        "--update-notes",
+        help="Existing note update mode: never, if-newer, or always.",
+    ),
+    update_notetypes: str = typer.Option(
+        "never",
+        "--update-notetypes",
+        help="Existing notetype update mode: never, if-newer, or always.",
+    ),
+    merge_notetypes: bool = typer.Option(
+        False,
+        "--merge-notetypes/--no-merge-notetypes",
+        help="Merge compatible notetypes instead of keeping them separate (default: off).",
+    ),
+    write: bool = typer.Option(False, "--write", help="Confirm the collection mutation."),
+) -> None:
+    try:
+        package_path = validate_apkg_path(path)
+        options = import_options_payload(
+            with_scheduling=with_scheduling,
+            with_deck_configs=with_deck_configs,
+            update_notes=update_notes,
+            update_notetypes=update_notetypes,
+            merge_notetypes=merge_notetypes,
+        )
+    except CollectionError as exc:
+        _fail(str(exc), [])
+        return
+
+    if not write:
+        _fail("APKG import requires --write", [])
+
+    resolved = _resolve_profile()
+    bridge = BridgeClient.discover(state.base) if state.base is not None else None
+    bridge_health = None
+    if bridge:
+        try:
+            bridge_health = bridge.health()
+        except BridgeError as exc:
+            _fail(
+                "%s; refusing to open the collection directly while a live-bridge state file exists"
+                % exc,
+                [],
+            )
+    if bridge_health and bridge_health.get("profile") == resolved.name:
+        try:
+            result = bridge.import_apkg(
+                {
+                    "profile": resolved.name,
+                    "package_path": str(package_path),
+                    "options": options,
+                    "write": True,
+                }
+            )
+            result["transport"] = "live_bridge"
+            _emit(result)
+        except BridgeError as exc:
+            _fail(str(exc), [])
+        return
+
+    _mutate(
+        write,
+        lambda service: service.import_apkg(package_path, options),
+        transport="direct",
+    )
+
+
 def _store() -> ProfileStore:
     assert state.base is not None
     return ProfileStore(state.base)
@@ -444,7 +529,12 @@ def _read_collection(operation: Callable[[AnkiCollectionService], object]) -> No
         _fail(str(exc), [])
 
 
-def _mutate(write: bool, operation: Callable[[AnkiCollectionService], dict]) -> None:
+def _mutate(
+    write: bool,
+    operation: Callable[[AnkiCollectionService], dict],
+    *,
+    transport: Optional[str] = None,
+) -> None:
     assert state.base is not None
     resolved = _resolve_profile()
     context = MutatingCommandContext(
@@ -461,12 +551,15 @@ def _mutate(write: bool, operation: Callable[[AnkiCollectionService], dict]) -> 
             finally:
                 service.close()
 
-    def backup() -> dict:
+    def backup(*, force: bool = False) -> dict:
         with _silence_anki_backend_stdout():
-            return _backup_service().create()
+            return _backup_service().create(force=force)
 
     try:
-        _emit(run_guarded_mutation(context, backup, mutate))
+        output = run_guarded_mutation(context, backup, mutate)
+        if transport:
+            output["transport"] = transport
+        _emit(output)
     except (CollectionError, BackupError, SafetyError) as exc:
         _fail(str(exc), [])
 

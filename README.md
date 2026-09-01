@@ -16,6 +16,7 @@ cd ankicli
 python3 -m pip install --upgrade pip
 python3 -m pip install .
 bash scripts/install-skill.sh
+bash scripts/install-bridge.sh
 ankicli --help
 ```
 
@@ -25,6 +26,7 @@ From an existing local checkout:
 python3 -m pip install --upgrade pip
 python3 -m pip install .
 bash scripts/install-skill.sh
+bash scripts/install-bridge.sh
 ankicli --help
 ```
 
@@ -98,6 +100,8 @@ against desktop Anki unless explicitly authorized.
   `card search QUERY --count`, or `note search QUERY --count`.
 - Every mutating command creates a backup first.
 - Desktop Anki mutations require `--write` and cannot use `--no-backup`.
+- APKG imports use the authenticated native bridge when the selected profile is
+  open in Desktop Anki; the CLI never opens that live `collection.anki2` itself.
 
 ## Examples
 
@@ -113,7 +117,52 @@ ankicli --base /srv/anki --json note search "deck:Current"
 ankicli --base /srv/anki --json card suspend "tag:pause-me" --write
 ankicli --base /srv/anki --json filtered create "Due Today" --search "is:due" --limit 100 --order DUE --write
 ankicli --base /srv/anki --json notetype export Basic --out /tmp/basic-notetype
+ankicli --json import apkg /path/to/deck.apkg --write
 ```
+
+## APKG Import And Live Desktop Anki
+
+Install the bundled bridge once, then restart Anki:
+
+```bash
+bash scripts/install-bridge.sh
+```
+
+The installer copies `ankicli_bridge` into the desktop Anki `addons21`
+directory. If it replaces an existing installation, it first creates a
+timestamped sibling backup. While Anki is open, the bridge exposes only an
+authenticated loopback endpoint and runs the import against Anki's already-open
+`mw.col`. With Anki closed or in an isolated `--base`, ankicli uses Anki's
+official `Collection` API directly.
+
+Safe import defaults are deliberately conservative:
+
+- scheduling/learning progress: off
+- deck presets/configuration: off
+- existing notes: never update
+- existing notetypes: never update
+- notetype merging: off
+
+All APKG imports require `--write`, create and verify an Anki backup first, and
+do not trigger synchronization. A repeated import is handled by Anki's native
+GUID matching and is reported under `unchanged`, `skipped`, and the detailed
+categories instead of being silently treated as new content.
+
+Safe AMBOSSIO update (update only notes whose package version is newer, while
+preserving local scheduling, deck presets, and notetype metadata):
+
+```bash
+ankicli --json import apkg /Users/florian/repos/AMBOSSIO/dist/AMBOSSIO.apkg \
+  --update-notes if-newer \
+  --update-notetypes never \
+  --without-scheduling \
+  --without-deck-configs \
+  --no-merge-notetypes \
+  --write
+```
+
+See the command reference for the full result shape and the more aggressive
+`always` update mode.
 
 For the full command reference, see [docs/COMMANDS.md](docs/COMMANDS.md).
 

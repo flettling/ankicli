@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 
 
 class BackupError(RuntimeError):
@@ -33,20 +33,49 @@ class BackupService:
         return self.profile_dir / "backups"
 
     def create(self, *, force: bool = False) -> dict[str, Any]:
-        collection = self.collection_factory(self.collection_path)
         try:
-            created = bool(
-                collection.create_backup(
-                    backup_folder=str(self.backup_dir),
-                    force=force,
-                    wait_for_completion=True,
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise BackupError("could not create Anki backup directory: %s" % exc) from exc
+        before = {
+            path.resolve(): (path.stat().st_mtime_ns, path.stat().st_size)
+            for path in self._backup_files()
+        }
+        try:
+            collection = self.collection_factory(self.collection_path)
+        except BackupError:
+            raise
+        except Exception as exc:
+            raise BackupError("could not open collection for backup: %s" % exc) from exc
+        try:
+            try:
+                created = bool(
+                    collection.create_backup(
+                        backup_folder=str(self.backup_dir),
+                        force=force,
+                        wait_for_completion=True,
+                    )
                 )
-            )
+            except Exception as exc:
+                raise BackupError("Anki backup failed: %s" % exc) from exc
         finally:
             close = getattr(collection, "close", None)
             if callable(close):
                 close()
-        return {"created": created, "backup_dir": str(self.backup_dir), "retention": self.retention}
+        backups = self._backup_files()
+        latest = backups[0] if backups else None
+        if latest is None or latest.stat().st_size <= 0:
+            raise BackupError("Anki backup could not be verified in %s" % self.backup_dir)
+        latest_signature = (latest.stat().st_mtime_ns, latest.stat().st_size)
+        if created and before.get(latest.resolve()) == latest_signature:
+            raise BackupError("Anki reported a backup but no new backup file was found")
+        return {
+            "created": created,
+            "verified": True,
+            "path": str(latest),
+            "backup_dir": str(self.backup_dir),
+            "retention": self.retention,
+        }
 
     def list(self) -> dict[str, Any]:
         backups = [
@@ -60,6 +89,13 @@ class BackupService:
             if path.is_file()
         ]
         return {"backup_dir": str(self.backup_dir), "retention": self.retention, "backups": backups}
+
+    def _backup_files(self) -> List[Path]:
+        return [
+            path
+            for path in sorted(self.backup_dir.glob("*"), key=lambda item: item.stat().st_mtime, reverse=True)
+            if path.is_file() and path.suffix.lower() == ".colpkg"
+        ]
 
     def prune(self) -> dict[str, Any]:
         if self.retention < 0:

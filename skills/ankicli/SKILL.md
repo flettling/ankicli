@@ -50,7 +50,33 @@ ankicli --base "$ANKI_BASE" --json note get 123
 ankicli --base "$ANKI_BASE" --json card suspend "cid:123" --write
 ankicli --base "$ANKI_BASE" --json filtered create "Due Today" --search "is:due" --limit 100 --order DUE --write
 ankicli --base "$ANKI_BASE" --json notetype export Basic --out /tmp/basic-notetype
+ankicli --base "$ANKI_BASE" --json import apkg /path/to/deck.apkg --write
 ```
+
+## APKG Import
+
+Use `import apkg` instead of desktop GUI automation. The defaults preserve
+local scheduling, deck presets, existing notes, and existing notetypes:
+
+```bash
+ankicli --json import apkg /path/to/deck.apkg --write
+```
+
+For a controlled content update, prefer `--update-notes if-newer`; only use
+`always` when replacement regardless of modification time is intentional.
+Keep `--update-notetypes never`, `--without-scheduling`,
+`--without-deck-configs`, and `--no-merge-notetypes` unless the user explicitly
+authorizes those imports.
+
+When Desktop Anki has the selected profile open, require the installed native
+bridge (`bash scripts/install-bridge.sh`, followed by an Anki restart). The CLI
+automatically routes the import through the open `mw.col`; never open
+`collection.anki2` directly in parallel. Confirm that output reports
+`transport: live_bridge`, a verified exact backup path, note counts, warnings,
+and no errors. Import does not sync; do not add a sync step without consent.
+If the bridge state exists but is unreachable, stop: ankicli deliberately
+refuses a direct fallback until Anki is restarted or stale state is cleared
+after confirming Desktop Anki is closed.
 
 ## Counts And Planning
 
